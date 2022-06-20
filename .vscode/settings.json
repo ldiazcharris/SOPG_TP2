@@ -1,0 +1,20 @@
+{
+    "files.associations": {
+        "stdlib.h": "c",
+        "pthread.h": "c",
+        "in.h": "c",
+        "stdio.h": "c",
+        "*.tcc": "c",
+        "optional": "c",
+        "algorithm": "c",
+        "random": "c",
+        "istream": "c",
+        "numeric": "c",
+        "streambuf": "c",
+        "memory_resource": "c",
+        "memory": "c",
+        "fstream": "c",
+        "ostream": "c",
+        "sstream": "c"
+    }
+}
