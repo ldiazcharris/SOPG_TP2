@@ -105,9 +105,13 @@ void *thread_1(void * args)
 		if((bytes = serial_receive(trama, strlen(trama))) == -1)
 		{
 			perror("Error leyendo mensaje en socket");
-			exit(1);
+			//exit(1);
 		}
-		send(newfd, trama, strlen(trama), 0);
+		if(-1 == send(newfd, trama, strlen(trama), 0))
+		{
+			perror("Error enviando a InterfaceService");
+			//exit(1);
+		}
 		//thread_mutex_unlock(&mutexData);
 	}
 	return NULL;
@@ -176,7 +180,7 @@ int main(void)
 	// Se cargan los datos de IP:PORT del server con la estructura de
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
-    serveraddr.sin_port = htons(4096);
+    serveraddr.sin_port = htons(10000);
     serveraddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     if(INADDR_NONE == serveraddr.sin_addr.s_addr)
     {
