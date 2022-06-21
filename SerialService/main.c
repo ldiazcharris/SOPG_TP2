@@ -15,59 +15,39 @@
 #include <pthread.h>
 #include "SerialManager.h"
 
-char buffer[128];
-int newfd;
+// Variable para guardar las tramas provenientes del puerto serie
+char trama_serial[20];
+
+// Variable para guardar las tramas provenientes de la pagina web
+char trama_tcp[20];
+
+// File descriptor para la conexión TCP con InterfaceService
+int fd_tcp_is;
 
 // Se crean los hilos del módulo
-pthread_t hilo_1;
+pthread_t thread_1_th;
+
+// Declaración de la función que manejará el thread_1_th
 void *thread_1(void *args);
 
-// Variable local tipo Mutex para controlar acceso concurrente
-pthread_mutex_t	mutexData = PTHREAD_MUTEX_INITIALIZER;
-
-// Variable comparitda para guardar las tramas
-char trama[11];
-
 /**
- * @brief Handler de signal SIGINT
+ * @brief Handler de signal SIGINT y SIGTERM
  *
  * Aquí se indica la secuencia de terminación de los threads
  *
  * @param sig
  */
-void sig_int_handler(int sig)
+void close_conection(int sig)
 {
-	write(0, "Pedido de cierre de conexion\n", 2);
+	write(0, "Pedido de cierre de conexion\n\r", 30);
 	// Se cirrea la conexion con cliente
-    close(newfd);
+    close(fd_tcp_is);
 	// Se cirrea la conexión serie con el Emulador
 	serial_close();
 	// Se cancela el thread_1
-	pthread_cancel(hilo_1);
+	pthread_cancel(thread_1_th);
 	// Se espera a que thread_1 retorne
-	pthread_join(hilo_1, NULL);
-	// Salida del hilo principal
-	exit(EXIT_SUCCESS);
-}
-
-/**
- * @brief Handler de signal SIGTERM
- *
- * Aquí se puede colocar la secuencia de terminación de los threads
- *
- * @param sig
- */
-void sig_term_handler(int sig)
-{
-	write(0, "Pedido de cierre de conexion\n", 2);
-	// Se cirrea la conexion con cliente
-    close(newfd);
-	// Se cirrea la conexión serie con el Emulador
-	serial_close();
-	// Se cancela el thread_1
-	pthread_cancel(hilo_1);
-	// Se espera a que thread_1 retorne
-	pthread_join(hilo_1, NULL);
+	pthread_join(thread_1_th, NULL);
 	// Salida del hilo principal
 	exit(EXIT_SUCCESS);
 }
@@ -94,24 +74,28 @@ void release_sign(void)
 	pthread_sigmask(SIG_UNBLOCK, &set, NULL);
 }
 
-// Hilo que se encargará de realizar la conexión con Emulador.py
+/**
+ * @brief Hilo que se encargará de realizar la conexión con Emulador.py
+ * 
+ * @param args 
+ * @return void* 
+ */
 void *thread_1(void * args)
 {
-	printf("Debug: Entré a thread_1");
+	//printf("Debug: Entré a thread_1");
 	while(true)
 	{
 		int bytes;
-		bytes = serial_receive(trama, 11);
-		trama[11] = 0;
-		//pthread_mutex_lock(&mutexData);
+		bytes = serial_receive(trama_serial, 20);
+		
 		if(0 < bytes)
 		{
-			printf("Recibi del serial-port: %s\n\r", trama);
+			trama_serial[bytes] = 0;
+			printf("Recibi del serial-port: %s\n\r", trama_serial);
 
-			if(-1 == send(newfd, trama, strlen(trama), 0))
+			if(-1 == send(fd_tcp_is, trama_serial, strlen(trama_serial), 0))
 			{
-				perror("Error enviando a InterfaceService");
-				//exit(1);
+				perror("Error enviando a InterfaceService\n\r");
 			}
 		}
 		else if(-1 == bytes)
@@ -119,40 +103,41 @@ void *thread_1(void * args)
 			perror("Error leyendo mensaje en serial port");
 		}
 
-		
-		//thread_mutex_unlock(&mutexData);
 		sleep(2);
 	}
 	return NULL;
 }
 
 
-// Hilo principal que se encargará de lanzar los hilos secundarios
-// Además se encargará de la conexión TCP con InterfaceService
+/**
+ * @brief 	Hilo principal que se encargará de lanzar los hilos secundarios
+ * Además se encargará de la conexión TCP con InterfaceService
+ * @return int 
+ */
 int main(void)
 {
 	// Se inicia el módulo SerialService
 	printf("Inicio Serial Service\r\n");
 
-	// Se crea la estructura de monitoreo de signals para
+	// Se crea la estructura de monitoreo de signals para SIGINT
 	struct sigaction sigint_a;
-	sigint_a.sa_handler = sig_int_handler;
+	sigint_a.sa_handler = close_conection;
 	sigint_a.sa_flags = 0;
 	sigemptyset(&sigint_a.sa_mask);
-	if(sigaction(SIGINT, &sigint_a, NULL) == -1)
+	if(-1 == sigaction(SIGINT, &sigint_a, NULL))
 	{
-		perror("Error: Sigint");
+		perror("Error: Sigint\n\r");
 		exit(1);
 	}
 
-	// Se crea la structura de monitoreo de signals para
+	// Se crea la structura de monitoreo de signals para SIGTERM
 	struct sigaction sigterm_a;
-	sigterm_a.sa_handler = sig_term_handler;
+	sigterm_a.sa_handler = close_conection;
 	sigterm_a.sa_flags = 0;
 	sigemptyset(&sigterm_a.sa_mask);
-	if(sigaction(SIGTERM, &sigterm_a, NULL) == -1)
+	if(-1 == sigaction(SIGTERM, &sigterm_a, NULL))
 	{
-		perror("Error: Sigterm");
+		perror("Error: Sigterm\n\r");
 		exit(1);
 	}
 
@@ -165,50 +150,48 @@ int main(void)
 	// con EmuladorHardware.
 	if(0 == serial_open(1, 115200))
 	{
-		pthread_create(&hilo_1, NULL, thread_1, NULL);
-		printf("Debug: se creó thread_1 sin problemas");
+		pthread_create(&thread_1_th, NULL, thread_1, NULL);
+		printf("thread_1 lanzado\n\r");
 	}
 	else
 	{
-		printf("Error abriendo puerto serie.\n\rFalló la comunicación con el hardware\r\n");
+		printf("Error abriendo puerto serie.\n\rFalló comunicación con emulador\r\n");
 	}
 
 	// Se libera el manejo de las signals
 	release_sign();
 
-	
 	// Se inicia la configuración para la comunicación TCP
 	// con el múdulo InterfaceService
 	socklen_t addr_len;
 	struct sockaddr_in clientaddr;
 	struct sockaddr_in serveraddr;
 
+	// Se crea el socket TCP
+	int s = socket(PF_INET, SOCK_STREAM, 0);
 
-	// Se crea el socket
-	int s = socket(PF_INET,SOCK_STREAM, 0);
-
-	// Se cargan los datos de IP:PORT del server con la estructura de
+	// Se cargan los datos de IP:PORT del server en la estructura serveraddr
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_port = htons(10000);
     serveraddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     if(INADDR_NONE == serveraddr.sin_addr.s_addr)
     {
-        fprintf(stderr,"ERROR invalid server IP\r\n");
+        fprintf(stderr,"ERROR servidor IP invalido\r\n");
         return 1;
     }
 
 	// Se abre el puerto 
-	if (bind(s, (struct sockaddr*)&serveraddr, sizeof(serveraddr)) == -1) {
+	if (-1 == bind(s, (struct sockaddr*)&serveraddr, sizeof(serveraddr)) ) {
 		close(s);
-		perror("listener: bind");
+		perror("listener: bind\n\r");
 		return 1;
 	}
 
 	// Se configura el socket en modo Listening
 	if (listen (s, 10) == -1) // backlog=10
   	{
-    	perror("Error en listen");
+    	perror("Error en listen\n\r");
     	exit(1);
   	}
 
@@ -216,46 +199,43 @@ int main(void)
 	static int n;
 	
 	// Aceptación contínua de conexiones
-	// Si un cliente que estuvo conectado se desconecta,
+	// Si un cliente que estuvo conectado y se desconecta,
 	// el programa podrá recibir otra conexión. 
 	while(true)
 	{
-		// Se acpetan conexiones entrantes
+		// Se acpetan conexiones entrantes continuamente.
+		// Se pudo lanzar un thread por cada conexión entrante,
+		// pero debido a la naturaleza de la aplicación,
+		// me pareció más seguro limitar la generación a dos 
+		// conexiones a saber: InterfaceService y EmuladorHardware.
 		addr_len = sizeof(struct sockaddr_in);
-    	if ( (newfd = accept(s, (struct sockaddr *)&clientaddr, &addr_len)) == -1)
+    	if (-1 == (fd_tcp_is = accept(s, (struct sockaddr *)&clientaddr, &addr_len)))
       	{
-		    perror("error en accept");
+		    perror("error en accept\n\r");
 		    exit(1);
 	    }
-	 	printf  ("server:  conexion desde:  %s\n", inet_ntoa(clientaddr.sin_addr));
+	 	printf  ("server:  conexion desde:  %s\n\r", inet_ntoa(clientaddr.sin_addr));
 		
 		// Lectura continua de datos desde el cliente
-
 		while(true)
 		{
 			// Se lee el mensaje de cliente
-			if( (n = recv(newfd, buffer,128, 0)) == -1 )
+			n = recv(fd_tcp_is, trama_tcp, 20, 0);
+
+			//Si se lee algo es recibido, se re-transmite a EmuladorHardware
+			if( 0 < n)
 			{
-				perror("Error leyendo mensaje en socket");
-				exit(1);
+				trama_tcp[20] = 0;
+				printf("Recibi %d bytes.:%s\n\r", n, trama_tcp);
+
+				// Se envía la trama recibida a EmuladorHardware
+				serial_send(trama_tcp, strlen(trama_tcp));
 			}
-			buffer[n] = 0;
-			printf("Recibi %d bytes.:%s\n",n,buffer);
-
-			/**
-			 * @brief Aquí hay que definir las condiciones en las cuales 
-			 * se debe enviar un mensaje a InterfaceService
-			 */
-
-			serial_send(buffer, strlen(buffer));
-			// Enviamos mensaje a cliente
-			/*
-			if (send(newfd, "hola", 5, 0) == -1)
+			else if (-1 == n)
 			{
-				perror("Error escribiendo mensaje en socket");
-				exit (1);
-    		}
-			*/
+				perror("Error leyendo mensaje en socket\n\r");
+				
+			}
 		}
 	}
 
