@@ -3,3 +3,7 @@
 /web
 /SerialService/compilar.sh
 /.vscode
+/SerialService/conect_emulator.c
+/SerialService/conect_interface.c
+/SerialService/proof_emulator
+/SerialService/proof_interface
