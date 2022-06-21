@@ -20,7 +20,7 @@ int newfd;
 	
 // Se crean los hilos del módulo
 pthread_t hilo_1;
-void *thread_1(void *argas);
+void *thread_1(void *args);
 
 // Variable local tipo Mutex para controlar acceso concurrente
 pthread_mutex_t	mutexData = PTHREAD_MUTEX_INITIALIZER;
@@ -97,22 +97,31 @@ void release_sign(void)
 // Hilo que se encargará de realizar la conexión con Emulador.py
 void *thread_1(void * args)
 {
-
+	printf("Debug: Entré a thread_1");
 	while(true)
 	{
-		int bytes = 0;
+		printf("Debug: Entré al while de thread_1");
+		int bytes;
+		bytes = serial_receive(trama, strlen(trama));
 		//pthread_mutex_lock(&mutexData);
-		if((bytes = serial_receive(trama, strlen(trama))) == -1)
+		if(0 < bytes)
 		{
-			perror("Error leyendo mensaje en socket");
-			//exit(1);
+			printf("Recibi del serial-port: %s\n\r", trama);
+
+			if(-1 == send(newfd, trama, strlen(trama), 0))
+			{
+				perror("Error enviando a InterfaceService");
+				//exit(1);
+			}
 		}
-		if(-1 == send(newfd, trama, strlen(trama), 0))
+		else if(0 == bytes)
 		{
-			perror("Error enviando a InterfaceService");
-			//exit(1);
+			perror("Error leyendo mensaje en serial port");
 		}
+
+		
 		//thread_mutex_unlock(&mutexData);
+		sleep(2);
 	}
 	return NULL;
 }
@@ -157,6 +166,7 @@ int main(void)
 	if(0 == serial_open(1, 115200))
 	{
 		pthread_create(&hilo_1, NULL, thread_1, NULL);
+		printf("Debug: se creó thread_1 sin problemas");
 	}
 	else
 	{
