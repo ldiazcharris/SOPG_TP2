@@ -17,7 +17,7 @@
 
 char buffer[128];
 int newfd;
-	
+
 // Se crean los hilos del módulo
 pthread_t hilo_1;
 void *thread_1(void *args);
@@ -26,7 +26,7 @@ void *thread_1(void *args);
 pthread_mutex_t	mutexData = PTHREAD_MUTEX_INITIALIZER;
 
 // Variable comparitda para guardar las tramas
-char trama[10];
+char trama[11];
 
 /**
  * @brief Handler de signal SIGINT
@@ -100,9 +100,9 @@ void *thread_1(void * args)
 	printf("Debug: Entré a thread_1");
 	while(true)
 	{
-		printf("Debug: Entré al while de thread_1");
 		int bytes;
-		bytes = serial_receive(trama, strlen(trama));
+		bytes = serial_receive(trama, 11);
+		trama[11] = 0;
 		//pthread_mutex_lock(&mutexData);
 		if(0 < bytes)
 		{
@@ -114,7 +114,7 @@ void *thread_1(void * args)
 				//exit(1);
 			}
 		}
-		else if(0 == bytes)
+		else if(-1 == bytes)
 		{
 			perror("Error leyendo mensaje en serial port");
 		}
@@ -228,7 +228,7 @@ int main(void)
 		    exit(1);
 	    }
 	 	printf  ("server:  conexion desde:  %s\n", inet_ntoa(clientaddr.sin_addr));
-
+		
 		// Lectura continua de datos desde el cliente
 
 		while(true)
