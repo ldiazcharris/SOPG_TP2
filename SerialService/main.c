@@ -24,6 +24,15 @@ char trama_tcp[20];
 // File descriptor para la conexión TCP con InterfaceService
 int fd_tcp_is;
 
+// Flag para detectar la conexión de un cliente
+bool flag_client = false;
+
+// Flag para detectar las SIGINT y SIGTERM
+bool flag_signal = false;
+
+// Mutex para proteger flag_client
+pthread_mutex_t mutex_flag = PTHREAD_MUTEX_INITIALIZER;
+
 // Se crean los hilos del módulo
 pthread_t thread_1_th;
 
@@ -37,7 +46,7 @@ void *thread_1(void *args);
  *
  * @param sig
  */
-void close_conection(int sig)
+void close_conection(void)
 {
 	write(0, "Pedido de cierre de conexion\n\r", 30);
 	// Se cirrea la conexion con cliente
@@ -50,6 +59,11 @@ void close_conection(int sig)
 	pthread_join(thread_1_th, NULL);
 	// Salida del hilo principal
 	exit(EXIT_SUCCESS);
+}
+
+void signal_handlder(int sig)
+{
+	flag_signal = true;
 }
 
 // Función para bloquear el manejo de las señales
@@ -93,17 +107,23 @@ void *thread_1(void * args)
 			trama_serial[bytes] = 0;
 			printf("Recibi del serial-port: %s\n\r", trama_serial);
 
-			if(-1 == send(fd_tcp_is, trama_serial, strlen(trama_serial), 0))
+			if(-1 == send(fd_tcp_is, trama_serial, strlen(trama_serial), 0) && flag_client)
 			{
 				perror("Error enviando a InterfaceService\n\r");
+				pthread_mutex_lock(&mutex_flag);
+				flag_client = false;
+				pthread_mutex_unlock(&mutex_flag);
 			}
 		}
-		else if(-1 == bytes)
+		else if(-1 == bytes &&  EAGAIN == errno)
+		{
+		}
+		else
 		{
 			perror("Error leyendo mensaje en serial port");
 		}
 
-		sleep(2);
+		usleep(100000);
 	}
 	return NULL;
 }
@@ -121,7 +141,7 @@ int main(void)
 
 	// Se crea la estructura de monitoreo de signals para SIGINT
 	struct sigaction sigint_a;
-	sigint_a.sa_handler = close_conection;
+	sigint_a.sa_handler = signal_handlder;
 	sigint_a.sa_flags = 0;
 	sigemptyset(&sigint_a.sa_mask);
 	if(-1 == sigaction(SIGINT, &sigint_a, NULL))
@@ -132,7 +152,7 @@ int main(void)
 
 	// Se crea la structura de monitoreo de signals para SIGTERM
 	struct sigaction sigterm_a;
-	sigterm_a.sa_handler = close_conection;
+	sigterm_a.sa_handler = signal_handlder;
 	sigterm_a.sa_flags = 0;
 	sigemptyset(&sigterm_a.sa_mask);
 	if(-1 == sigaction(SIGTERM, &sigterm_a, NULL))
@@ -203,6 +223,11 @@ int main(void)
 	// el programa podrá recibir otra conexión. 
 	while(true)
 	{
+		// Deteccion del flag levantado por SIGINT o SIGTERM
+		if(true == flag_signal)
+		{
+			break;
+		}
 		// Se acpetan conexiones entrantes continuamente.
 		// Se pudo lanzar un thread por cada conexión entrante,
 		// pero debido a la naturaleza de la aplicación,
@@ -216,14 +241,24 @@ int main(void)
 	    }
 	 	printf  ("server:  conexion desde:  %s\n\r", inet_ntoa(clientaddr.sin_addr));
 		
+		pthread_mutex_lock(&mutex_flag);
+		flag_client = true;
+		pthread_mutex_unlock(&mutex_flag);
+
 		// Lectura continua de datos desde el cliente
 		while(true)
 		{
+			// Deteccion del flag levantado por SIGINT o SIGTERM
+			if(true == flag_signal)
+			{
+				break;
+			}
+
 			// Se lee el mensaje de cliente
 			n = recv(fd_tcp_is, trama_tcp, 20, 0);
 
 			//Si se lee algo es recibido, se re-transmite a EmuladorHardware
-			if( 0 < n)
+			if( 0 < n && flag_client)
 			{
 				trama_tcp[20] = 0;
 				printf("Recibi %d bytes.:%s\n\r", n, trama_tcp);
@@ -231,14 +266,19 @@ int main(void)
 				// Se envía la trama recibida a EmuladorHardware
 				serial_send(trama_tcp, strlen(trama_tcp));
 			}
-			else if (-1 == n)
+			else if (0 == n)
 			{
-				perror("Error leyendo mensaje en socket\n\r");
-				
+				pthread_mutex_lock(&mutex_flag);
+				flag_client = false;
+				pthread_mutex_unlock(&mutex_flag);
+			}
+			else
+			{
+				perror("Error en recv");
 			}
 		}
 	}
 
-	
+	close_conection();
 	return 0;
 }
