@@ -107,7 +107,11 @@ void *thread_1(void * args)
 			trama_serial[bytes] = 0;
 			printf("Recibi del serial-port: %s\n\r", trama_serial);
 
-			if(-1 == send(fd_tcp_is, trama_serial, strlen(trama_serial), 0) && flag_client)
+			pthread_mutex_lock(&mutex_flag);
+			bool state_client = flag_client;
+			pthread_mutex_unlock(&mutex_flag);
+
+			if(!state_client && (-1 == send(fd_tcp_is, trama_serial, strlen(trama_serial), 0)))
 			{
 				perror("Error enviando a InterfaceService\n\r");
 				pthread_mutex_lock(&mutex_flag);
@@ -276,6 +280,13 @@ int main(void)
 			{
 				perror("Error en recv");
 			}
+			pthread_mutex_lock(&mutex_flag);
+			
+			if(true == flag_client)
+			{
+				break;
+			}
+			pthread_mutex_unlock(&mutex_flag);
 		}
 	}
 
