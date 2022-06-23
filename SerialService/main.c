@@ -26,12 +26,13 @@ int fd_tcp_is;
 
 // Flag para detectar la conexión de un cliente
 bool flag_client = false;
+bool flag_serial = false;
 
 // Flag para detectar las SIGINT y SIGTERM
 bool flag_signal = false;
 
 // Mutex para proteger flag_client
-pthread_mutex_t mutex_flag = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_flag_tcp = PTHREAD_MUTEX_INITIALIZER;
 
 // Se crean los hilos del módulo
 pthread_t thread_1_th;
@@ -63,7 +64,7 @@ void close_conection(void)
 
 void signal_handlder(int sig)
 {
-	flag_signal = true;
+	flag_signal = false;
 }
 
 // Función para bloquear el manejo de las señales
@@ -107,15 +108,15 @@ void *thread_1(void * args)
 			trama_serial[bytes] = 0;
 			printf("Recibi del serial-port: %s\n\r", trama_serial);
 
-			pthread_mutex_lock(&mutex_flag);
+			pthread_mutex_lock(&mutex_flag_tcp);
 			if(flag_client && (-1 == send(fd_tcp_is, trama_serial, strlen(trama_serial), 0)))
 			{
 				perror("Error enviando a InterfaceService\n\r");
-				pthread_mutex_lock(&mutex_flag);
+				
 				flag_client = false;
-				pthread_mutex_unlock(&mutex_flag);
+				pthread_mutex_unlock(&mutex_flag_tcp);
 			}
-			pthread_mutex_unlock(&mutex_flag);
+			pthread_mutex_unlock(&mutex_flag_tcp);
 		}
 		else if(-1 == bytes &&  EAGAIN == errno)
 		{
@@ -123,6 +124,7 @@ void *thread_1(void * args)
 		else
 		{
 			perror("Error leyendo mensaje en serial port");
+			sleep(1);
 		}
 
 		usleep(100000);
@@ -226,10 +228,11 @@ int main(void)
 	while(true)
 	{
 		// Deteccion del flag levantado por SIGINT o SIGTERM
-		if(true == flag_signal)
+		if(flag_signal)
 		{
 			break;
 		}
+
 		// Se acpetan conexiones entrantes continuamente.
 		// Se pudo lanzar un thread por cada conexión entrante,
 		// pero debido a la naturaleza de la aplicación,
@@ -241,11 +244,11 @@ int main(void)
 		    perror("error en accept\n\r");
 		    exit(1);
 	    }
-	 	printf  ("server:  conexion desde:  %s\n\r", inet_ntoa(clientaddr.sin_addr));
+	 	printf("server:  conexion desde:  %s\n\r", inet_ntoa(clientaddr.sin_addr));
 		
-		pthread_mutex_lock(&mutex_flag);
+		pthread_mutex_lock(&mutex_flag_tcp);
 		flag_client = true;
-		pthread_mutex_unlock(&mutex_flag);
+		pthread_mutex_unlock(&mutex_flag_tcp);
 
 		// Lectura continua de datos desde el cliente
 		while(true)
@@ -260,7 +263,7 @@ int main(void)
 			n = recv(fd_tcp_is, trama_tcp, 20, 0);
 
 			//Si se lee algo es recibido, se re-transmite a EmuladorHardware
-			if( 0 < n && flag_client)
+			if(flag_client && 0 < n)
 			{
 				trama_tcp[20] = 0;
 				printf("Recibi %d bytes.:%s\n\r", n, trama_tcp);
@@ -270,22 +273,30 @@ int main(void)
 			}
 			else if (0 == n)
 			{
-				pthread_mutex_lock(&mutex_flag);
+				pthread_mutex_lock(&mutex_flag_tcp);
 				flag_client = false;
-				pthread_mutex_unlock(&mutex_flag);
+				pthread_mutex_unlock(&mutex_flag_tcp);
 			}
 			else
 			{
 				perror("Error en recv");
+				// Salida por interrupted system call
+				if(EINTR == errno)
+				{
+					flag_signal = true;
+				}
 			}
 
 			// Detección de desconexión del cliente
-			pthread_mutex_lock(&mutex_flag);
-			if(true == flag_client)
+			pthread_mutex_lock(&mutex_flag_tcp);
+			if(!flag_client)
 			{
+				pthread_mutex_unlock(&mutex_flag_tcp);
+				printf("server:  conexion perdida:  %s\n\r", inet_ntoa(clientaddr.sin_addr));
 				break;
+				
 			}
-			pthread_mutex_unlock(&mutex_flag);
+			pthread_mutex_unlock(&mutex_flag_tcp);
 		}
 	}
 
